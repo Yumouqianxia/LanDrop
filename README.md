@@ -26,4 +26,4 @@ dotnet build -c Release
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
 ```
 
-推送形如 `v2.2.0` 的标签后，GitHub Actions 会生成单文件 EXE、SHA-256 文件和 Release。程序内更新器读取仓库 `Yumouqianxia/LanDrop` 的最新正式 Release。
+推送形如 `v2.2.1` 的标签后，GitHub Actions 会生成 `LanDrop.exe`、SHA-256 文件和 Release。程序内更新器读取仓库 `Yumouqianxia/LanDrop` 的最新正式 Release。

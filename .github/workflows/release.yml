@@ -30,10 +30,11 @@ jobs:
       - name: Create SHA-256 checksum
         shell: pwsh
         run: |
-          $hash = (Get-FileHash -LiteralPath 'artifacts/release/局域网搬家.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          Copy-Item -LiteralPath 'artifacts/release/局域网搬家.exe' -Destination 'artifacts/release/LanDrop.exe'
+          $hash = (Get-FileHash -LiteralPath 'artifacts/release/LanDrop.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText(
-            (Join-Path $PWD 'artifacts/release/局域网搬家.exe.sha256'),
-            "$hash  局域网搬家.exe`n",
+            (Join-Path $PWD 'artifacts/release/LanDrop.exe.sha256'),
+            "$hash  LanDrop.exe`n",
             [System.Text.UTF8Encoding]::new($false))
 
       - name: Create GitHub Release
@@ -42,7 +43,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create '${{ github.ref_name }}' `
-            'artifacts/release/局域网搬家.exe' `
-            'artifacts/release/局域网搬家.exe.sha256' `
+            'artifacts/release/LanDrop.exe' `
+            'artifacts/release/LanDrop.exe.sha256' `
             --title '局域网搬家 ${{ github.ref_name }}' `
             --generate-notes

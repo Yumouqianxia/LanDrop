@@ -13,8 +13,8 @@ public sealed record UpdateRelease(Version Version, string Tag, string PageUrl, 
 public static class UpdateService
 {
     public const string Repository = "Yumouqianxia/LanDrop";
-    private const string ExecutableAsset = "局域网搬家.exe";
-    private const string ChecksumAsset = "局域网搬家.exe.sha256";
+    private const string ExecutableAsset = "LanDrop.exe";
+    private const string ChecksumAsset = "LanDrop.exe.sha256";
     private static readonly HttpClient Client = CreateClient();
 
     public static Version CurrentVersion
