@@ -1,0 +1,48 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Publish single-file app
+        shell: pwsh
+        run: >-
+          dotnet publish LanDrop.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+          -o artifacts/release
+
+      - name: Create SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -LiteralPath 'artifacts/release/局域网搬家.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $PWD 'artifacts/release/局域网搬家.exe.sha256'),
+            "$hash  局域网搬家.exe`n",
+            [System.Text.UTF8Encoding]::new($false))
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' `
+            'artifacts/release/局域网搬家.exe' `
+            'artifacts/release/局域网搬家.exe.sha256' `
+            --title '局域网搬家 ${{ github.ref_name }}' `
+            --generate-notes
