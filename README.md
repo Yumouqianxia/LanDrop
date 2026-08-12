@@ -23,7 +23,7 @@
 
 ```powershell
 dotnet build -c Release
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
-推送形如 `v2.2.2` 的标签后，GitHub Actions 会生成 `LanDrop.exe`、SHA-256 文件和 Release。程序内更新器读取仓库 `Yumouqianxia/LanDrop` 的最新正式 Release。
+推送形如 `v2.2.3` 的标签后，GitHub Actions 会生成包含 WPF 原生依赖的真正单文件 `LanDrop.exe`、SHA-256 文件和 Release。程序内更新器读取仓库 `Yumouqianxia/LanDrop` 的最新正式 Release。

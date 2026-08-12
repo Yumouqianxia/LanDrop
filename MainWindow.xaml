@@ -1,7 +1,7 @@
 <Window x:Class="LanDrop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="局域网搬家 2.2.2" Width="960" Height="760" MinWidth="820" MinHeight="650"
+        Title="局域网搬家 2.2.3" Width="960" Height="760" MinWidth="820" MinHeight="650"
         WindowStartupLocation="CenterScreen" Background="#F8FAFC" FontFamily="Segoe UI, Microsoft YaHei UI">
     <Grid>
         <Grid.RowDefinitions>
