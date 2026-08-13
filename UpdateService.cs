@@ -29,7 +29,7 @@ public static class UpdateService
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("LanDrop-Windows-Updater/2.2");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("LanDrop-Windows-Updater/2.3");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return client;
     }

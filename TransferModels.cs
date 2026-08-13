@@ -6,6 +6,11 @@ public sealed record SelectedItem(string FullPath, string DisplayName, string Ki
 
 public sealed record TransferFile(string SourcePath, string RelativePath, long Length, long LastWriteUtcTicks);
 
+public sealed record ChatMessage(string Sender, string Text, DateTime Time, bool IsLocal)
+{
+    public string TimeText => Time.ToString("HH:mm:ss");
+}
+
 public sealed class WireMessage
 {
     public int ProtocolVersion { get; set; }
@@ -19,6 +24,8 @@ public sealed class WireMessage
     public long LastWriteUtcTicks { get; set; }
     public long TotalBytes { get; set; }
     public int FileCount { get; set; }
+    public string? Text { get; set; }
+    public string? Sender { get; set; }
 }
 
 public sealed class DiscoveryPacket

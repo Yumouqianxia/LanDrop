@@ -13,6 +13,7 @@ public static class TransferProtocol
 {
     public const int DiscoveryPort = 49550;
     public const int TransferPort = 49551;
+    public const int MessagePort = 49552;
     private const string DiscoveryQuery = "LANDROP_DISCOVER_V1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 

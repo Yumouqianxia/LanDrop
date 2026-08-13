@@ -13,6 +13,7 @@ namespace LanDrop;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<SelectedItem> _sendItems = [];
+    private readonly ObservableCollection<ChatMessage> _messages = [];
     private CancellationTokenSource? _sendCts;
     private CancellationTokenSource? _receiveCts;
     private TcpListener? _listener;
@@ -28,11 +29,18 @@ public partial class MainWindow : Window
     private readonly Stopwatch _sendElapsed = new();
     private readonly Stopwatch _sendSpeedWindow = new();
     private UpdateRelease? _availableUpdate;
+    private CancellationTokenSource? _messageCts;
+    private TcpListener? _messageListener;
+    private TcpClient? _messageClient;
+    private NetworkStream? _messageStream;
+    private readonly SemaphoreSlim _messageWriteLock = new(1, 1);
+    private string? _messageCode;
 
     public MainWindow()
     {
         InitializeComponent();
         SendItemsList.ItemsSource = _sendItems;
+        MessageList.ItemsSource = _messages;
         LoadLastReceiverIp();
         DestinationBox.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "局域网接收");
         NetworkStateText.Text = TransferProtocol.GetLocalIPv4Addresses().Any()
@@ -43,6 +51,9 @@ public partial class MainWindow : Window
             _sendCts?.Cancel();
             _receiveCts?.Cancel();
             _listener?.Stop();
+            _messageCts?.Cancel();
+            _messageListener?.Stop();
+            _messageClient?.Dispose();
         };
         Loaded += async (_, _) => await CheckForUpdateAsync(showErrors: false);
     }
@@ -369,6 +380,204 @@ public partial class MainWindow : Window
             if (showErrors) MessageBox.Show(this, ex.Message, "检查更新失败", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally { CheckUpdateButton.IsEnabled = true; }
+    }
+
+    private async void MessageListen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_messageCts is not null)
+        {
+            StopMessageSession("消息连接已断开");
+            return;
+        }
+
+        _messageCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+        _messageCts = new CancellationTokenSource();
+        CancellationToken token = _messageCts.Token;
+        MessageLocalCodeText.Text = $"本机配对码 {_messageCode}";
+        MessageStatusText.Text = $"正在等待对方连接 · TCP {TransferProtocol.MessagePort}";
+        SetMessageControls(active: true, connected: false);
+        try
+        {
+            _messageListener = new TcpListener(IPAddress.Any, TransferProtocol.MessagePort);
+            _messageListener.Start();
+            using TcpClient client = await _messageListener.AcceptTcpClientAsync(token);
+            _messageListener.Stop();
+            _messageListener = null;
+            client.NoDelay = true;
+            NetworkStream stream = client.GetStream();
+            WireMessage hello = await TransferProtocol.ReadMessageAsync(stream, token);
+            if (hello.Type != "messageHello" || hello.Code != _messageCode)
+            {
+                await TransferProtocol.WriteMessageAsync(stream,
+                    new WireMessage { Type = "error", Error = "消息配对码不正确。" }, token);
+                throw new InvalidOperationException("连接方提供的消息配对码不正确。");
+            }
+            await TransferProtocol.WriteMessageAsync(stream,
+                new WireMessage { Type = "messageReady", Sender = Environment.MachineName }, token);
+            await RunMessageSessionAsync(client, hello.Sender, token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            MessageStatusText.Text = "消息连接失败";
+            MessageBox.Show(this, ex.Message, "消息连接失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally { StopMessageSession(MessageStatusText.Text == "消息连接失败" ? "消息连接失败" : "消息连接已断开"); }
+    }
+
+    private async void MessageConnect_Click(object sender, RoutedEventArgs e)
+    {
+        if (_messageCts is not null)
+        {
+            StopMessageSession("消息连接已断开");
+            return;
+        }
+        if (!IPAddress.TryParse(MessagePeerIpBox.Text.Trim(), out IPAddress? ip))
+        {
+            MessageBox.Show(this, "请输入正确的对方电脑 IP。", "地址无效", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        string code = MessagePeerCodeBox.Text.Trim();
+        if (code.Length != 6 || !code.All(char.IsDigit))
+        {
+            MessageBox.Show(this, "请输入对方显示的六位消息配对码。", "需要配对码", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _messageCts = new CancellationTokenSource();
+        CancellationToken token = _messageCts.Token;
+        MessageStatusText.Text = $"正在连接 {ip}…";
+        MessageLocalCodeText.Text = "";
+        SetMessageControls(active: true, connected: false);
+        try
+        {
+            var client = new TcpClient { NoDelay = true };
+            await client.ConnectAsync(ip, TransferProtocol.MessagePort, token);
+            NetworkStream stream = client.GetStream();
+            await TransferProtocol.WriteMessageAsync(stream, new WireMessage
+            {
+                Type = "messageHello", Code = code, Sender = Environment.MachineName
+            }, token);
+            WireMessage ready = await TransferProtocol.ReadMessageAsync(stream, token);
+            if (ready.Type == "error") throw new InvalidOperationException(ready.Error ?? "对方拒绝了消息连接。");
+            if (ready.Type != "messageReady") throw new InvalidDataException("对方返回了无效的消息响应。");
+            await RunMessageSessionAsync(client, ready.Sender, token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            MessageStatusText.Text = "消息连接失败";
+            MessageBox.Show(this, ex.Message, "消息连接失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally { StopMessageSession(MessageStatusText.Text == "消息连接失败" ? "消息连接失败" : "消息连接已断开"); }
+    }
+
+    private async Task RunMessageSessionAsync(TcpClient client, string? peerName, CancellationToken token)
+    {
+        _messageClient = client;
+        _messageStream = client.GetStream();
+        string peerAddress = ((IPEndPoint?)client.Client.RemoteEndPoint)?.Address.ToString() ?? "对方";
+        MessagePeerIpBox.Text = peerAddress;
+        MessageStatusText.Text = $"已连接 · {peerName ?? peerAddress}";
+        SetMessageControls(active: true, connected: true);
+        _messages.Add(new ChatMessage("系统", $"已与 {peerName ?? peerAddress} 建立消息连接。", DateTime.Now, false));
+
+        while (!token.IsCancellationRequested)
+        {
+            WireMessage message = await TransferProtocol.ReadMessageAsync(_messageStream, token);
+            if (message.Type != "chat" || string.IsNullOrEmpty(message.Text)) continue;
+            _messages.Add(new ChatMessage(message.Sender ?? peerName ?? "对方", message.Text, DateTime.Now, false));
+            MessageList.ScrollIntoView(_messages[^1]);
+        }
+    }
+
+    private async void SendMessage_Click(object sender, RoutedEventArgs e)
+    {
+        string content = MessageComposerBox.Text;
+        if (string.IsNullOrWhiteSpace(content) || _messageStream is null || _messageCts is null) return;
+        if (content.Length > 65_536)
+        {
+            MessageBox.Show(this, "单条消息最多 65,536 个字符。", "消息过长", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        await _messageWriteLock.WaitAsync();
+        try
+        {
+            await TransferProtocol.WriteMessageAsync(_messageStream, new WireMessage
+            {
+                Type = "chat", Text = content, Sender = Environment.MachineName
+            }, _messageCts.Token);
+            _messages.Add(new ChatMessage("我", content, DateTime.Now, true));
+            MessageComposerBox.Clear();
+            MessageList.ScrollIntoView(_messages[^1]);
+            MessageComposerBox.Focus();
+        }
+        catch (Exception ex)
+        {
+            MessageStatusText.Text = "消息发送失败";
+            MessageBox.Show(this, ex.Message, "消息发送失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally { _messageWriteLock.Release(); }
+    }
+
+    private void PasteMessage_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                string pasted = Clipboard.GetText();
+                int caret = MessageComposerBox.CaretIndex;
+                MessageComposerBox.Text = MessageComposerBox.Text.Insert(caret, pasted);
+                MessageComposerBox.CaretIndex = caret + pasted.Length;
+                MessageComposerBox.Focus();
+            }
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "无法读取剪贴板", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private void CopyMessage_Click(object sender, RoutedEventArgs e)
+    {
+        if (MessageList.SelectedItem is not ChatMessage message)
+        {
+            MessageBox.Show(this, "请先在消息记录中选中一条消息。", "尚未选择", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        try
+        {
+            Clipboard.SetText(message.Text);
+            MessageStatusText.Text = "已复制选中消息";
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "无法写入剪贴板", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private void StopMessageSession(string status)
+    {
+        _messageCts?.Cancel();
+        _messageListener?.Stop();
+        _messageClient?.Dispose();
+        _messageCts?.Dispose();
+        _messageCts = null;
+        _messageListener = null;
+        _messageClient = null;
+        _messageStream = null;
+        MessageStatusText.Text = status;
+        MessageLocalCodeText.Text = "";
+        SetMessageControls(active: false, connected: false);
+    }
+
+    private void SetMessageControls(bool active, bool connected)
+    {
+        MessageListenButton.Content = active ? "断开消息连接" : "开始等待消息";
+        MessageConnectButton.Content = active ? "断开" : "连接";
+        MessageListenButton.IsEnabled = true;
+        MessageConnectButton.IsEnabled = true;
+        MessagePeerIpBox.IsEnabled = !active;
+        MessagePeerCodeBox.IsEnabled = !active;
+        SendMessageButton.IsEnabled = connected;
     }
 
     private async void WaitForReceiver_Click(object sender, RoutedEventArgs e)
@@ -756,7 +965,11 @@ public partial class MainWindow : Window
             string path = Path.Combine(SettingsDirectory, "last-receiver.txt");
             if (!File.Exists(path)) return;
             string value = File.ReadAllText(path).Trim();
-            if (IPAddress.TryParse(value, out _)) SendTargetIpBox.Text = value;
+            if (IPAddress.TryParse(value, out _))
+            {
+                SendTargetIpBox.Text = value;
+                MessagePeerIpBox.Text = value;
+            }
         }
         catch { }
     }
